@@ -1,0 +1,79 @@
+Practical Machine Learning - Course Project
+================
+Xavier Fontané
+9 de marzo de 2017
+
+`{r setup, include=FALSE} knitr::opts_chunk$set(echo = TRUE)`
+
+Introduction
+------------
+
+Nowadays it's possible to collect large amounts of data about personal activity using several devices without expending lots of money. These devices are part of the quantified self movement, and that means take measurements regularly to quantify how much of a particular activity is done.
+
+In this project, we are going to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts in 5 different ways: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).
+
+The goal of this project is to create a machine-learning algorithm that can correctly identify the quality of barbell bicep curls by using data from belt, forearm, arm, and dumbbell monitors.
+
+Loading and Cleaning data
+-------------------------
+
+First step is install the packages that we are going to use and load the data `{r, load_data} suppressWarnings(library(ggplot2)) suppressWarnings(library(caret)) suppressWarnings(library(rattle)) training <- read.csv("./pml-training.csv", header = T, na.strings = c("", "NA")) testing <- read.csv("./pml-testing.csv", header = T, na.strings = c("", "NA")) dim(training) dim(testing)`
+
+Verify that we have the same columns in both training and testing sets (except classe and problem\_id)
+
+``` {r}
+all.equal(colnames(training)[1:length(colnames(training))-1], colnames(testing)[1:length(colnames(training))-1])
+```
+
+#### Data cleaning
+
+The 160 variables provided by data are not all relevant for the goal of this project, and some of them are directly variables with missing data. So we extract the relevant variables using a pattern recognition for relevant strings, leaving in this way 52 variables `{r clean_training} trainingaccel<-grepl("^accel",names(training)) trainingtotal<-grepl("^total",names(training)) roll<-grepl("^roll",names(training)) pitch<-grepl("^pitch",names(training)) yaw<-grepl("^yaw",names(training)) magnet<-grepl("^magnet",names(training)) gyro<-grepl("^gyro",names(training)) acceldata<-training[ ,trainingaccel] rolldata<-training[ ,roll] pitchdata<-training[ ,pitch] yawdata<-training[,yaw] magnetdata<-training[,magnet] gyrodata<-training[,gyro] totaldata<-training[,trainingtotal] training<-cbind(acceldata,rolldata,pitchdata,yawdata,magnetdata,gyrodata,totaldata,training[ ,160]) colnames(training)[53]<-'classe'` And now, we do the same for the testing data `{r clean_testing} testingaccel<-grepl("^accel",names(testing)) testingtotal<-grepl("^total",names(testing)) troll<-grepl("^roll",names(testing)) tpitch<-grepl("^pitch",names(testing)) tyaw<-grepl("^yaw",names(testing)) tmagnet<-grepl("^magnet",names(testing)) tgyro<-grepl("^gyro",names(testing)) tacceldata<-testing[ ,testingaccel] trolldata<-testing[ ,troll] tpitchdata<-testing[,tpitch] tyawdata<-testing[,tyaw] tmagnetdata<-testing[,tmagnet] tgyrodata<-testing[,tgyro] ttotaldata<-testing[,testingtotal] testing<-cbind(tacceldata,trolldata,tpitchdata,tyawdata,tmagnetdata,tgyrodata,ttotaldata,testing[ ,160]) colnames(testing)[53]<-'problem.id'`
+
+In order to avoid overfitting, let's check for covariates that have virtually no variablility
+
+``` {r}
+nzv <- nearZeroVar(training, saveMetrics=TRUE)
+nzv
+```
+
+As can be observed, all of the near zero variance variables are FALSE, so there's no need to eliminate any covariates
+
+Finally, due to the large amount of observations in the training set (19622), it's interesting to split it in training (60 %) and testing (40 %) subsets in order to reduce calculation time `{r subset} set.seed(400) inTrain <- createDataPartition(training$classe, p = .60,list=FALSE) sub_training <- training[ inTrain,] sub_testing <- training[-inTrain,]`
+
+Algorithm Models
+----------------
+
+Based on the process used by the authors of the paper refered to this work (Section 5.2), we chose two different algorithms via the caret package: classification trees (method = rpart) and random forests (method = rf)
+\#\#\#Classification Tree First of all we try to model with a decision tree with rpart package, because outcomes are nominal `{r rpart, cache=TRUE} set.seed(400) modFit <- train(classe ~ ., data = sub_training, method="rpart") print(modFit$finalModel, digits=3) fancyRpartPlot(modFit$finalModel)` Now, we run it against the testing set
+
+``` {r}
+prediction1 <- predict(modFit,sub_testing)
+confusionMatrix(sub_testing$classe,prediction1)
+```
+
+After testing this model on the sub\_testing subset, we observe that we have only a 54.6% accuracy. This model is not good enough, so let's try a Random Forest model with cross-validation
+
+### Random Forest
+
+The classification tree model was inaccurate so we try to test now with a random forest model to see if that method fit the data more appropriately. `{r rf, cache=TRUE} set.seed(400) suppressWarnings(modFit2 <- train(classe ~ ., method="rf",trControl=trainControl(method = "cv", number = 4), data=sub_training)) print(modFit2,digits=3)` The five most important variables in the model and their relative importance values are:
+
+``` {r}
+suppressWarnings(varImp(modFit2))
+```
+
+Now apply it to the testing subset data
+
+``` {r}
+prediction2 <- predict(modFit2,sub_testing)
+confusionMatrix(sub_testing$classe,prediction2)
+modFit2$finalModel
+```
+
+Finally, we apply the prediction model to the testing data `{r results} final_testing <- predict(modFit2, newdata=testing) print(final_testing)` Those are the results that we will use them for the submission of this course project in the coursera platform.
+
+Conclusions
+-----------
+
+The random forest model has a 99.2% accuracy, which is far more better than classification trees. For this model, the specificity and sensitivity for all classes are over 90%. Most important variables are, in order, roll\_belt, pitch\_forearm, yaw\_belt, picht\_belt, and magnet\_dumbbell\_y.
+
+Final prediction is: B A B A A E D B A A B C B A E E A B B B
